@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 P = ParamSpec("P")
 T = TypeVar("T")
 
-ErrorHandler: TypeAlias = (
+TaskErrorHandler: TypeAlias = (
     Callable[["Task[..., Any]", Exception], Any] | Callable[["Task[..., Any]", Exception], Awaitable[Any]]
 )
 
@@ -28,7 +28,7 @@ ErrorHandler: TypeAlias = (
 class TaskConfig:
     name: str | None = None
     shield: bool | None = None
-    on_error: ErrorHandler | None = None
+    on_error: TaskErrorHandler | None = None
 
     @property
     def shielded(self) -> bool:
@@ -115,7 +115,7 @@ class _ConfiguredTaskDefMixin:
         *,
         name: str | None = None,
         shield: bool | None = None,
-        on_error: ErrorHandler | None = None,
+        on_error: TaskErrorHandler | None = None,
     ) -> _PartialTaskDef[..., Any]:
         return _PartialTaskDef(
             _config=TaskConfig(
@@ -153,6 +153,7 @@ class TasksScheduler(_ConfiguredTaskDefMixin):
 __all__ = [
     "Task",
     "TaskConfig",
+    "TaskErrorHandler",
     "TasksBatch",
     "TasksScheduler",
 ]

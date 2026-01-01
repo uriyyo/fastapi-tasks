@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.routing import _merge_lifespan_context
 
 from ._excs import FastAPITasksUninitializedAppError
-from ._tasks import TasksScheduler
+from .tasks import TasksScheduler
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
