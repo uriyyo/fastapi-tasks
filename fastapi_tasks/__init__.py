@@ -1,4 +1,4 @@
-from ._dependencies import Tasks, add_tasks
+from .dependencies import Tasks, add_tasks
 from .tasks import TaskErrorHandler
 
 __all__ = [

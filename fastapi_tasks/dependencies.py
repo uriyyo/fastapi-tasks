@@ -7,7 +7,7 @@ import anyio
 from fastapi import Depends, FastAPI, Request
 from fastapi.routing import _merge_lifespan_context
 
-from ._excs import FastAPITasksUninitializedAppError
+from .errors import FastAPITasksUninitializedAppError
 from .tasks import TasksScheduler
 
 if TYPE_CHECKING:

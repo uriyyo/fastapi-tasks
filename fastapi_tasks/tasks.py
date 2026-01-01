@@ -9,7 +9,7 @@ import anyio
 from anyio import from_thread
 from anyio._core._eventloop import current_async_library
 
-from fastapi_tasks._utils import always_async_call
+from .utils import always_async_call
 
 if TYPE_CHECKING:
     from anyio.abc import TaskGroup
