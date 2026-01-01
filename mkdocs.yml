@@ -45,6 +45,28 @@ theme:
 
 nav:
   - "General": index.md
+  - "Learn":
+      - "Background Tasks":
+        - "General": learn/background_tasks/general.md
+        - "Timing Modes": learn/background_tasks/timing_modes.md
+      - "Tutorial - User Guide":
+        - "First Steps": learn/tutorial_user_guide/first_steps.md
+        - "Scheduling Tasks": learn/tutorial_user_guide/scheduling_tasks.md
+        - "Timing Control": learn/tutorial_user_guide/timing_control.md
+        - "Task Configuration": learn/tutorial_user_guide/task_configuration.md
+        - "Sync and Async": learn/tutorial_user_guide/sync_async.md
+      - "Tutorial - Advanced":
+        - "Error Handling": learn/tutorial_advanced/error_handling.md
+        - "Task Shielding": learn/tutorial_advanced/task_shielding.md
+        - "Real World Examples": learn/tutorial_advanced/real_world_examples.md
+  - "API Reference":
+      - "Tasks": api/tasks.md
+      - "TaskConfig": api/task_config.md
+      - "TaskScheduler": api/task_scheduler.md
+      - "Error Handlers": api/error_handlers.md
+      - "Utilities": api/utilities.md
+  - "FAQ":
+      - "FAQ": faq/faq.md
   - "Contributing": contributing.md
   - "License": license.md
 

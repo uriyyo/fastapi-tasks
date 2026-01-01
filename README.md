@@ -17,8 +17,8 @@ Unlike FastAPI's built-in `BackgroundTasks` which only runs tasks after the resp
 fine-grained control over **when** your background tasks execute:
 
 - **Immediately** - Task starts right away, concurrently with your endpoint
-- **After Route** - Task runs after your endpoint function completes, but before the response is sent
-- **After Response** - Task runs after the response is sent to the client
+- **After Route** - Task is scheduled after your endpoint completes, before the response is sent (fire-and-forget)
+- **After Response** - Task is scheduled after the response is sent to the client
 
 Features:
 
@@ -73,10 +73,12 @@ async def create_user(email: str, tasks: Tasks) -> dict:
 
 ## Timing Modes
 
-| Mode | When it runs | Use case |
-|------|--------------|----------|
+**Important:** All background tasks are fire-and-forget. They are scheduled at specific points but don't block the response.
+
+| Mode | When it's scheduled | Use case |
+|------|---------------------|----------|
 | `tasks.schedule()` | Immediately (concurrent) | Fire-and-forget, non-blocking operations |
-| `tasks.after_route.schedule()` | After endpoint returns | Cleanup, logging before response |
+| `tasks.after_route.schedule()` | After endpoint returns, before response | Cleanup, logging (doesn't block response) |
 | `tasks.after_response.schedule()` | After response sent | Notifications, analytics, emails |
 
 ### Timing Visualization
@@ -84,7 +86,7 @@ async def create_user(email: str, tasks: Tasks) -> dict:
 ```
 Request arrives
     │
-    ├─► tasks.schedule() ──────────────────────► Runs immediately (concurrent)
+    ├─► tasks.schedule() ──────────────────────► Scheduled immediately (concurrent)
     │
     ▼
 Endpoint function executes
@@ -92,12 +94,12 @@ Endpoint function executes
     ▼
 Endpoint returns
     │
-    ├─► tasks.after_route.schedule() ─────────► Runs here
+    ├─► tasks.after_route.schedule() ─────────► Scheduled here (fire-and-forget)
     │
     ▼
 Response sent to client
     │
-    ├─► tasks.after_response.schedule() ──────► Runs here
+    ├─► tasks.after_response.schedule() ──────► Scheduled here
     │
     ▼
 Request complete
