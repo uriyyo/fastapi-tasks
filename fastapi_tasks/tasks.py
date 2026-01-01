@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeAlias, TypeVar
@@ -94,7 +95,8 @@ class _PartialTaskDef(Generic[P, T]):
         return task
 
 
-class _ConfiguredTaskDefMixin:
+class _ConfiguredTaskDefMixin(ABC):
+    @abstractmethod
     def _on_task_schedule(self, task: Task[P, T], /) -> None:
         pass
 
