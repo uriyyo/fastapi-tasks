@@ -46,7 +46,7 @@ async def _get_tasks_scheduler_req_scope(req: Request) -> AsyncIterator[TasksSch
 
     yield scheduler
 
-    scheduler.after_request.__start__(scheduler)
+    scheduler.after_response.__start__(scheduler)
 
 
 async def _get_task_scheduler(
@@ -60,7 +60,7 @@ async def _get_task_scheduler(
     ],
 ) -> AsyncIterator[TasksScheduler]:
     yield _scheduler
-    _scheduler.after_endpoint.__start__(_scheduler)
+    _scheduler.after_route.__start__(_scheduler)
 
 
 Tasks = Annotated[

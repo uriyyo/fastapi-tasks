@@ -143,8 +143,8 @@ class TasksBatch(_ConfiguredTaskDefMixin):
 class TasksScheduler(_ConfiguredTaskDefMixin):
     tg: TaskGroup
 
-    after_request: TasksBatch = field(default_factory=TasksBatch)
-    after_endpoint: TasksBatch = field(default_factory=TasksBatch)
+    after_response: TasksBatch = field(default_factory=TasksBatch)
+    after_route: TasksBatch = field(default_factory=TasksBatch)
 
     def _on_task_schedule(self, task: Task[P, T], /) -> None:
         task.__start__(self)

@@ -12,8 +12,8 @@ def test_smoke() -> None:
     add_tasks(app)
 
     immediate_test = threading.Event()
-    after_request_test = threading.Event()
-    after_endpoint_test = threading.Event()
+    after_response_test = threading.Event()
+    after_route_test = threading.Event()
 
     def task(_event: threading.Event) -> None:
         _event.set()
@@ -21,8 +21,8 @@ def test_smoke() -> None:
     @app.get("/")
     def endpoint(tasks: Tasks) -> dict[Any, Any]:
         tasks.schedule(task, immediate_test)
-        tasks.after_request.schedule(task, after_request_test)
-        tasks.after_endpoint.schedule(task, after_endpoint_test)
+        tasks.after_response.schedule(task, after_response_test)
+        tasks.after_route.schedule(task, after_route_test)
 
         return {}
 
@@ -33,9 +33,9 @@ def test_smoke() -> None:
         assert response.json() == {}
 
         immediate_test.wait()
-        after_request_test.wait()
-        after_endpoint_test.wait()
+        after_response_test.wait()
+        after_route_test.wait()
 
         assert immediate_test.is_set()
-        assert after_request_test.is_set()
-        assert after_endpoint_test.is_set()
+        assert after_response_test.is_set()
+        assert after_route_test.is_set()
