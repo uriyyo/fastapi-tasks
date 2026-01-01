@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeAlias, TypeVar
 
 import anyio
-from anyio import from_thread
+import anyio.from_thread
 from anyio._core._eventloop import current_async_library
 
 from .utils import always_async_call
@@ -66,7 +66,7 @@ class Task(Generic[P, T]):
         # if we're not in an async context
         # then we assume we're in anyio worker thread
         if current_async_library() is None:
-            from_thread.run_sync(_start_task)
+            anyio.from_thread.run_sync(_start_task)
         else:
             _start_task()
 
