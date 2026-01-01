@@ -2,5 +2,5 @@
 publish = "site"
 command = """
 pip3 install -U -r docs_requirements.txt &&
-mkdocs build -d site
+python3 -m mkdocs build -d site
 """
