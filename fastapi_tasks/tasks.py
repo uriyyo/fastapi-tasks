@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
+from copy import copy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeAlias, TypeVar
 
 import anyio
 import anyio.from_thread
 from anyio._core._eventloop import current_async_library
+from typing_extensions import Self
 
 from .utils import always_async_call
 
@@ -33,7 +35,21 @@ class TaskConfig:
 
     @property
     def shielded(self) -> bool:
-        return self.shield is not None and self.shield
+        return bool(self.shield)
+
+    def merge(self, other: Self, /) -> Self:
+        merged = copy(self)
+
+        if other.name is not None:
+            merged.name = other.name
+
+        if other.shield is not None:
+            merged.shield = other.shield
+
+        if other.on_error is not None:
+            merged.on_error = other.on_error
+
+        return merged
 
 
 @dataclass
@@ -96,6 +112,8 @@ class _PartialTaskDef(Generic[P, T]):
 
 
 class _ConfiguredTaskDefMixin(ABC):
+    config: TaskConfig
+
     @abstractmethod
     def _on_task_schedule(self, task: Task[P, T], /) -> None:
         pass
@@ -120,17 +138,20 @@ class _ConfiguredTaskDefMixin(ABC):
         on_error: TaskErrorHandler | None = None,
     ) -> _PartialTaskDef[..., Any]:
         return _PartialTaskDef(
-            _config=TaskConfig(
-                name=name,
-                shield=shield,
-                on_error=on_error,
+            _config=self.config.merge(
+                TaskConfig(
+                    name=name,
+                    shield=shield,
+                    on_error=on_error,
+                ),
             ),
             _on_schedule=self._on_task_schedule,
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TasksBatch(_ConfiguredTaskDefMixin):
+    config: TaskConfig
     scheduled: list[Task[..., Any]] = field(default_factory=list)
 
     def __start__(self, scheduler: TasksScheduler, /) -> None:
@@ -144,9 +165,14 @@ class TasksBatch(_ConfiguredTaskDefMixin):
 @dataclass
 class TasksScheduler(_ConfiguredTaskDefMixin):
     tg: TaskGroup
+    config: TaskConfig
 
-    after_response: TasksBatch = field(default_factory=TasksBatch)
-    after_route: TasksBatch = field(default_factory=TasksBatch)
+    after_response: TasksBatch = field(init=False)
+    after_route: TasksBatch = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.after_response = TasksBatch(config=self.config)
+        self.after_route = TasksBatch(config=self.config)
 
     def _on_task_schedule(self, task: Task[P, T], /) -> None:
         task.__start__(self)

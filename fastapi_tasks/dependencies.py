@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 import anyio
@@ -8,7 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.routing import _merge_lifespan_context
 
 from .errors import FastAPITasksUninitializedAppError
-from .tasks import TasksScheduler
+from .tasks import TaskConfig, TasksScheduler
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -17,16 +18,26 @@ if TYPE_CHECKING:
 
 
 @asynccontextmanager
-async def _lifespan(_: FastAPI, /) -> AsyncIterator[dict[str, Any]]:
+async def _lifespan(_: FastAPI, /, config: TaskConfig) -> AsyncIterator[dict[str, Any]]:
     async with anyio.create_task_group() as tg:
-        yield {"fastapi_tasks_tg": tg}
+        yield {
+            "fastapi_tasks_tg": tg,
+            "fastapi_tasks_config": config,
+        }
 
         tg.cancel_scope.cancel()
 
 
-def add_tasks(app: FastAPI) -> None:
+def add_tasks(
+    app: FastAPI,
+    *,
+    config: TaskConfig | None = None,
+) -> None:
     app.router.lifespan_context = _merge_lifespan_context(
-        _lifespan,
+        partial(
+            _lifespan,
+            config=config or TaskConfig(),
+        ),
         app.router.lifespan_context,
     )
 
@@ -34,6 +45,7 @@ def add_tasks(app: FastAPI) -> None:
 async def _get_tasks_scheduler_req_scope(req: Request) -> AsyncIterator[TasksScheduler]:
     try:
         tg: TaskGroup = req.state.fastapi_tasks_tg
+        config: TaskConfig = req.state.fastapi_tasks_config
     except AttributeError:
         msg = (
             "TaskGroup dependency used outside of lifespan context. "
@@ -42,7 +54,7 @@ async def _get_tasks_scheduler_req_scope(req: Request) -> AsyncIterator[TasksSch
 
         raise FastAPITasksUninitializedAppError(msg) from None
 
-    scheduler = TasksScheduler(tg)
+    scheduler = TasksScheduler(tg, config)
 
     yield scheduler
 
