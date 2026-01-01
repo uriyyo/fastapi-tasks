@@ -20,9 +20,9 @@ def test_smoke() -> None:
 
     @app.get("/")
     def endpoint(tasks: Tasks) -> dict[Any, Any]:
-        tasks.start(task, immediate_test)
-        tasks.after_request.add(task, after_request_test)
-        tasks.after_endpoint.add(task, after_endpoint_test)
+        tasks.schedule(task, immediate_test)
+        tasks.after_request.schedule(task, after_request_test)
+        tasks.after_endpoint.schedule(task, after_endpoint_test)
 
         return {}
 

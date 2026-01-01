@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
 
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from anyio.abc import TaskGroup
+
+logger = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -38,16 +41,21 @@ class Task(Generic[P, T]):
 
     started: anyio.Event = field(default_factory=anyio.Event)
 
-    async def __call__(self) -> T:
+    async def __call__(self) -> T | None:
         self.started.set()
 
-        with anyio.CancelScope(shield=self.config.shielded):
-            if is_async_callable(self.func):
-                return await self.func(*self.args, **self.kwargs)
+        try:
+            with anyio.CancelScope(shield=self.config.shielded):
+                if is_async_callable(self.func):
+                    return await self.func(*self.args, **self.kwargs)
 
-            return await run_in_threadpool(self.func, *self.args, **self.kwargs)
+                return await run_in_threadpool(self.func, *self.args, **self.kwargs)
+        except Exception:
+            logger.exception("Exception occurred in task %r", self)
 
-    def start(self, scheduler: TasksScheduler, /) -> None:
+        return None
+
+    def __start__(self, scheduler: TasksScheduler, /) -> None:
         def _start_task() -> None:
             scheduler.tg.start_soon(self, name=self.config.name)
 
@@ -59,11 +67,43 @@ class Task(Generic[P, T]):
             _start_task()
 
 
+class _ConfiguredTaskDefMixin:
+    def _on_task(self, task: Task[P, T], /) -> None:
+        pass
+
+    def task(
+        self,
+        *,
+        name: str | None = None,
+        shield: bool | None = None,
+    ) -> Callable[[Callable[P, T]], Task[P, T]]:
+        def decorator(
+            func: Callable[P, T],
+            /,
+            *args: P.args,
+            **kwargs: P.kwargs,
+        ) -> Task[P, T]:
+            task_def = Task(
+                func=func,
+                args=args,
+                kwargs=kwargs,
+                config=TaskConfig(
+                    name=name,
+                    shield=shield,
+                ),
+            )
+            self._on_task(task_def)
+
+            return task_def
+
+        return decorator
+
+
 @dataclass
-class TasksBatch:
+class TasksBatch(_ConfiguredTaskDefMixin):
     scheduled: list[Task[..., Any]] = field(default_factory=list)
 
-    def add(
+    def schedule(
         self,
         func: Callable[P, T],
         /,
@@ -75,46 +115,22 @@ class TasksBatch:
 
         return task
 
-    def start(self, scheduler: TasksScheduler, /) -> None:
+    def __start__(self, scheduler: TasksScheduler, /) -> None:
         for task_def in self.scheduled:
-            task_def.start(scheduler)
+            task_def.__start__(scheduler)
 
-    def task(
-        self,
-        *,
-        name: str | None = None,
-        shield: bool | None = None,
-    ) -> Callable[[Callable[P, T]], Task[P, T]]:
-        def decorator(
-            func: Callable[P, T],
-            /,
-            *args: P.args,
-            **kwargs: P.kwargs,
-        ) -> Task[P, T]:
-            task_def = Task(
-                func=func,
-                args=args,
-                kwargs=kwargs,
-                config=TaskConfig(
-                    name=name,
-                    shield=shield,
-                ),
-            )
-            self.scheduled.append(task_def)
-
-            return task_def
-
-        return decorator
+    def _on_task(self, task: Task[P, T], /) -> None:
+        self.scheduled.append(task)
 
 
 @dataclass
-class TasksScheduler:
+class TasksScheduler(_ConfiguredTaskDefMixin):
     tg: TaskGroup
 
     after_request: TasksBatch = field(default_factory=TasksBatch)
     after_endpoint: TasksBatch = field(default_factory=TasksBatch)
 
-    def start(
+    def schedule(
         self,
         func: Callable[P, T],
         /,
@@ -122,34 +138,10 @@ class TasksScheduler:
         **kwargs: P.kwargs,
     ) -> None:
         task = Task(func=func, args=args, kwargs=kwargs)
-        task.start(self)
+        task.__start__(self)
 
-    def task(
-        self,
-        *,
-        name: str | None = None,
-        shield: bool | None = None,
-    ) -> Callable[[Callable[P, T]], Task[P, T]]:
-        def decorator(
-            func: Callable[P, T],
-            /,
-            *args: P.args,
-            **kwargs: P.kwargs,
-        ) -> Task[P, T]:
-            task_def = Task(
-                func=func,
-                args=args,
-                kwargs=kwargs,
-                config=TaskConfig(
-                    name=name,
-                    shield=shield,
-                ),
-            )
-            task_def.start(self)
-
-            return task_def
-
-        return decorator
+    def _on_task(self, task: Task[P, T], /) -> None:
+        task.__start__(self)
 
 
 __all__ = [
