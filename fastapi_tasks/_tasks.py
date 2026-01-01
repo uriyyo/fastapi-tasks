@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeAlias, TypeVar
 
 import anyio
 from anyio import from_thread
 from anyio._core._eventloop import current_async_library
-from starlette._utils import is_async_callable
-from starlette.concurrency import run_in_threadpool
+
+from fastapi_tasks._utils import always_async_call
 
 if TYPE_CHECKING:
     from anyio.abc import TaskGroup
@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 P = ParamSpec("P")
 T = TypeVar("T")
 
-ErrorHandler: TypeAlias = Callable[[Exception], Any]
+ErrorHandler: TypeAlias = (
+    Callable[["Task[..., Any]", Exception], Any] | Callable[["Task[..., Any]", Exception], Awaitable[Any]]
+)
 
 
 @dataclass
@@ -48,15 +50,12 @@ class Task(Generic[P, T]):
 
         try:
             with anyio.CancelScope(shield=self.config.shielded):
-                if is_async_callable(self.func):
-                    return await self.func(*self.args, **self.kwargs)
-
-                return await run_in_threadpool(self.func, *self.args, **self.kwargs)
+                return await always_async_call(self.func, *self.args, **self.kwargs)
         except Exception as e:
             logger.exception("Exception occurred in task %r", self)
 
             if self.config.on_error is not None:
-                self.config.on_error(e)
+                await always_async_call(self.config.on_error, self, e)
 
         return None
 
