@@ -21,7 +21,7 @@ async def _lifespan(_: FastAPI, /) -> AsyncIterator[dict[str, Any]]:
     async with anyio.create_task_group() as tg:
         yield {"fastapi_tasks_tg": tg}
 
-        tg.cancel_scope.cancel("lifespan ended")
+        tg.cancel_scope.cancel()
 
 
 def add_tasks(app: FastAPI) -> None:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, ParamSpec, TypeAlias, TypeVar
 
 import anyio
 from anyio import from_thread
@@ -11,8 +12,6 @@ from starlette._utils import is_async_callable
 from starlette.concurrency import run_in_threadpool
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from anyio.abc import TaskGroup
 
 logger = logging.getLogger(__name__)
@@ -20,11 +19,14 @@ logger = logging.getLogger(__name__)
 P = ParamSpec("P")
 T = TypeVar("T")
 
+ErrorHandler: TypeAlias = Callable[[Exception], Any]
+
 
 @dataclass
 class TaskConfig:
     name: str | None = None
     shield: bool | None = None
+    on_error: ErrorHandler | None = None
 
     @property
     def shielded(self) -> bool:
@@ -50,8 +52,11 @@ class Task(Generic[P, T]):
                     return await self.func(*self.args, **self.kwargs)
 
                 return await run_in_threadpool(self.func, *self.args, **self.kwargs)
-        except Exception:
+        except Exception as e:
             logger.exception("Exception occurred in task %r", self)
+
+            if self.config.on_error is not None:
+                self.config.on_error(e)
 
         return None
 
@@ -67,41 +72,32 @@ class Task(Generic[P, T]):
             _start_task()
 
 
-class _ConfiguredTaskDefMixin:
-    def _on_task(self, task: Task[P, T], /) -> None:
-        pass
-
-    def task(
-        self,
-        *,
-        name: str | None = None,
-        shield: bool | None = None,
-    ) -> Callable[[Callable[P, T]], Task[P, T]]:
-        def decorator(
-            func: Callable[P, T],
-            /,
-            *args: P.args,
-            **kwargs: P.kwargs,
-        ) -> Task[P, T]:
-            task_def = Task(
-                func=func,
-                args=args,
-                kwargs=kwargs,
-                config=TaskConfig(
-                    name=name,
-                    shield=shield,
-                ),
-            )
-            self._on_task(task_def)
-
-            return task_def
-
-        return decorator
-
-
 @dataclass
-class TasksBatch(_ConfiguredTaskDefMixin):
-    scheduled: list[Task[..., Any]] = field(default_factory=list)
+class _PartialTaskDef(Generic[P, T]):
+    _config: TaskConfig
+    _on_schedule: Callable[[Task[P, T]], None]
+
+    def schedule(
+        self,
+        func: Callable[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> Task[P, T]:
+        task = Task(
+            func=func,
+            args=args,
+            kwargs=kwargs,
+            config=self._config,
+        )
+        self._on_schedule(task)
+
+        return task
+
+
+class _ConfiguredTaskDefMixin:
+    def _on_task_schedule(self, task: Task[P, T], /) -> None:
+        pass
 
     def schedule(
         self,
@@ -111,15 +107,36 @@ class TasksBatch(_ConfiguredTaskDefMixin):
         **kwargs: P.kwargs,
     ) -> Task[P, T]:
         task = Task(func=func, args=args, kwargs=kwargs)
-        self.scheduled.append(task)
+        self._on_task_schedule(task)
 
         return task
+
+    def task(
+        self,
+        *,
+        name: str | None = None,
+        shield: bool | None = None,
+        on_error: ErrorHandler | None = None,
+    ) -> _PartialTaskDef[..., Any]:
+        return _PartialTaskDef(
+            _config=TaskConfig(
+                name=name,
+                shield=shield,
+                on_error=on_error,
+            ),
+            _on_schedule=self._on_task_schedule,
+        )
+
+
+@dataclass
+class TasksBatch(_ConfiguredTaskDefMixin):
+    scheduled: list[Task[..., Any]] = field(default_factory=list)
 
     def __start__(self, scheduler: TasksScheduler, /) -> None:
         for task_def in self.scheduled:
             task_def.__start__(scheduler)
 
-    def _on_task(self, task: Task[P, T], /) -> None:
+    def _on_task_schedule(self, task: Task[P, T], /) -> None:
         self.scheduled.append(task)
 
 
@@ -130,17 +147,7 @@ class TasksScheduler(_ConfiguredTaskDefMixin):
     after_request: TasksBatch = field(default_factory=TasksBatch)
     after_endpoint: TasksBatch = field(default_factory=TasksBatch)
 
-    def schedule(
-        self,
-        func: Callable[P, T],
-        /,
-        *args: P.args,
-        **kwargs: P.kwargs,
-    ) -> None:
-        task = Task(func=func, args=args, kwargs=kwargs)
-        task.__start__(self)
-
-    def _on_task(self, task: Task[P, T], /) -> None:
+    def _on_task_schedule(self, task: Task[P, T], /) -> None:
         task.__start__(self)
 
 
