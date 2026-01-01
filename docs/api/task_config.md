@@ -74,6 +74,70 @@ config = TaskConfig()  # shield=None
 assert config.shielded is False
 ```
 
+### Methods
+
+#### `merge(other: TaskConfig) -> TaskConfig`
+
+Merges this configuration with another configuration, creating a new `TaskConfig` instance.
+
+The `other` config takes precedence for any non-None values.
+
+**Parameters:**
+
+- `other: TaskConfig` - The configuration to merge with
+
+**Returns:** A new `TaskConfig` instance with merged values
+
+**Behavior:**
+
+- Starts with a copy of the current config
+- For each field in `other` that is not `None`, overwrites the field in the merged config
+- Fields that are `None` in `other` keep their values from the current config
+
+**Example:**
+
+```python
+# Base configuration
+base = TaskConfig(name="base_task", shield=True)
+
+# Override configuration
+override = TaskConfig(shield=False, on_error=error_handler)
+
+# Merge them
+merged = base.merge(override)
+
+# Result:
+# - name: "base_task" (from base, since override.name is None)
+# - shield: False (from override)
+# - on_error: error_handler (from override)
+assert merged.name == "base_task"
+assert merged.shield is False
+assert merged.on_error is error_handler
+```
+
+**Use Cases:**
+
+The `merge()` method is primarily used internally when you provide a global configuration to `add_tasks()` and then override it for individual tasks:
+
+```python
+from fastapi import FastAPI
+from fastapi_tasks import add_tasks, TaskConfig
+
+# Global configuration for all tasks
+global_config = TaskConfig(shield=True, on_error=global_error_handler)
+app = FastAPI()
+add_tasks(app, config=global_config)
+
+# Individual tasks can override the global config
+@app.post("/task")
+async def endpoint(tasks: Tasks) -> dict:
+    # This task inherits shield=True but overrides the error handler
+    tasks.task(on_error=custom_handler).schedule(my_function)
+    
+    # Result: shield=True (from global), on_error=custom_handler
+    return {}
+```
+
 ## Task
 
 The `Task` class represents a scheduled task.

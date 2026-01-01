@@ -421,6 +421,236 @@ tasks.task().schedule(my_task)
 tasks.task(name=None, shield=False, on_error=None).schedule(my_task)
 ```
 
+## Global Configuration
+
+You can set default configuration for **all tasks** in your application by passing a `TaskConfig` to `add_tasks()`:
+
+```python
+from fastapi import FastAPI
+from fastapi_tasks import Tasks, add_tasks, TaskConfig
+
+# Define global error handler
+async def global_error_handler(task: Task, error: Exception) -> None:
+    print(f"Task {task.config.name} failed: {error}")
+    # Send to error tracking service
+    await track_error(error)
+
+# Global configuration applied to all tasks
+global_config = TaskConfig(
+    shield=True,  # All tasks shielded by default
+    on_error=global_error_handler
+)
+
+app = FastAPI()
+add_tasks(app, config=global_config)
+
+
+@app.post("/task")
+async def endpoint(tasks: Tasks) -> dict:
+    # This task inherits global configuration
+    # shield=True, on_error=global_error_handler
+    tasks.schedule(my_function)
+    
+    return {"status": "scheduled"}
+```
+
+### How Global Configuration Works
+
+When you provide a global `TaskConfig` to `add_tasks()`:
+
+1. The config is stored in the application's lifespan context
+2. It's propagated to the `TasksScheduler` on every request
+3. Individual tasks **merge** their config with the global config
+4. Task-specific settings override global settings
+
+### Overriding Global Configuration
+
+Individual tasks can override any part of the global configuration:
+
+```python
+# Global config: all tasks shielded with global error handler
+global_config = TaskConfig(shield=True, on_error=global_error_handler)
+app = FastAPI()
+add_tasks(app, config=global_config)
+
+
+async def custom_error_handler(task: Task, error: Exception) -> None:
+    print("Custom handler")
+
+
+@app.post("/tasks")
+async def endpoint(tasks: Tasks) -> dict:
+    # Task 1: Uses global config completely
+    # shield=True, on_error=global_error_handler
+    tasks.schedule(task1)
+    
+    # Task 2: Overrides error handler only
+    # shield=True (from global), on_error=custom_error_handler
+    tasks.task(on_error=custom_error_handler).schedule(task2)
+    
+    # Task 3: Overrides shield only
+    # shield=False, on_error=global_error_handler (from global)
+    tasks.task(shield=False).schedule(task3)
+    
+    # Task 4: Overrides everything
+    # shield=False, on_error=custom_error_handler, name="my_task"
+    tasks.task(
+        name="my_task",
+        shield=False,
+        on_error=custom_error_handler
+    ).schedule(task4)
+    
+    return {"status": "ok"}
+```
+
+### Configuration Merge Behavior
+
+The merge follows these rules:
+
+- For each field (`name`, `shield`, `on_error`):
+  - If the task-specific value is **not None**, use it
+  - Otherwise, use the global value
+
+```python
+global_config = TaskConfig(name="global", shield=True, on_error=handler1)
+
+# Task config only sets shield=False
+task_config = TaskConfig(shield=False)
+
+# After merge:
+# - name: "global" (from global, task didn't specify)
+# - shield: False (from task, overrides global)
+# - on_error: handler1 (from global, task didn't specify)
+merged = global_config.merge(task_config)
+```
+
+### Real-World Example: Production App
+
+```python
+from fastapi import FastAPI
+from fastapi_tasks import Tasks, add_tasks, TaskConfig, Task
+import sentry_sdk
+
+
+# Global error handler for production monitoring
+async def production_error_handler(task: Task, error: Exception) -> None:
+    # Log to application logs
+    logger.error(f"Task failed: {task.config.name}", exc_info=error)
+    
+    # Send to Sentry with context
+    with sentry_sdk.push_scope() as scope:
+        scope.set_context("task", {
+            "name": task.config.name,
+            "function": task.func.__name__,
+        })
+        sentry_sdk.capture_exception(error)
+
+
+# All tasks in production should:
+# 1. Report errors to Sentry
+# 2. NOT be shielded by default (allow quick shutdown)
+production_config = TaskConfig(
+    on_error=production_error_handler,
+    shield=False
+)
+
+app = FastAPI()
+add_tasks(app, config=production_config)
+
+
+async def process_payment(payment_id: int, amount: float) -> None:
+    # Process payment...
+    pass
+
+
+async def send_notification(user_id: int, message: str) -> None:
+    # Send notification...
+    pass
+
+
+@app.post("/payments")
+async def create_payment(payment_id: int, amount: float, tasks: Tasks) -> dict:
+    # Critical payment task - override global config to shield
+    tasks.task(
+        name=f"process_payment_{payment_id}",
+        shield=True  # Override: payments must complete
+        # on_error still uses production_error_handler from global
+    ).schedule(process_payment, payment_id, amount)
+    
+    return {"status": "processing"}
+
+
+@app.post("/notify")
+async def notify_user(user_id: int, message: str, tasks: Tasks) -> dict:
+    # Non-critical notification - use global config
+    # shield=False, on_error=production_error_handler
+    tasks.task(name=f"notify_{user_id}").schedule(
+        send_notification, user_id, message
+    )
+    
+    return {"status": "scheduled"}
+```
+
+### When to Use Global Configuration
+
+Use global configuration when you want to:
+
+1. **Standardize error handling** - All tasks report to the same monitoring service
+2. **Set security defaults** - Shield or unshield all tasks by default
+3. **Reduce boilerplate** - Avoid repeating the same config on every task
+4. **Enforce policies** - Ensure all tasks follow company standards
+
+### When Not to Use Global Configuration
+
+Don't use global configuration if:
+
+1. **Tasks are too diverse** - Different tasks need very different configs
+2. **You need explicit control** - You want to see config at each task site
+3. **Team prefers explicit** - Your team values explicitness over DRY
+
+### Global Configuration Best Practices
+
+#### 1. Set Conservative Defaults
+
+```python
+# Good - conservative defaults, override when needed
+global_config = TaskConfig(
+    shield=False,  # Fast shutdown by default
+    on_error=log_errors  # Always log errors
+)
+
+# Tasks opt-in to shielding when critical
+tasks.task(shield=True).schedule(critical_task)
+```
+
+#### 2. Document Your Global Config
+
+```python
+# Global task configuration for this application:
+# - All tasks report errors to Sentry
+# - Tasks are NOT shielded (can be cancelled during shutdown)
+# - Individual tasks can override these defaults
+global_config = TaskConfig(
+    on_error=sentry_error_handler,
+    shield=False
+)
+add_tasks(app, config=global_config)
+```
+
+#### 3. Keep It Simple
+
+```python
+# Good - simple, clear global config
+global_config = TaskConfig(on_error=error_handler)
+
+# Avoid - too much in global config
+global_config = TaskConfig(
+    name="default_task",  # Don't set names globally
+    shield=True,  # Risky default
+    on_error=complex_handler
+)
+```
+
 ## Next Steps
 
 Now that you understand task configuration, learn about:

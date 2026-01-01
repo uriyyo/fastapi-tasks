@@ -74,6 +74,24 @@ This is a **critical step**. You must call `add_tasks(app)` to initialize backgr
 Internally, `add_tasks(app)` sets up a task group using `anyio` that manages all background tasks throughout your application's lifecycle.
 It integrates with FastAPI's lifespan context to ensure tasks are properly managed during startup and shutdown.
 
+### Optional: Global Task Configuration
+
+You can optionally provide a default `TaskConfig` that applies to all tasks:
+
+```python
+from fastapi_tasks import TaskConfig
+
+# Set global defaults for all tasks
+global_config = TaskConfig(
+    shield=True,  # All tasks shielded by default
+    on_error=error_handler  # Global error handler
+)
+
+add_tasks(app, config=global_config)
+```
+
+Individual tasks can still override these defaults. Learn more in [Task Configuration](task_configuration.md#global-configuration).
+
 ## Step 4: Define Your Task Function
 
 ```python

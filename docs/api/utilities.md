@@ -9,12 +9,17 @@ The `add_tasks()` function initializes background task support for your FastAPI 
 ### Signature
 
 ```python
-def add_tasks(app: FastAPI) -> None
+def add_tasks(
+    app: FastAPI,
+    *,
+    config: TaskConfig | None = None,
+) -> None
 ```
 
 ### Parameters
 
 - `app: FastAPI` - The FastAPI application instance
+- `config: TaskConfig | None` - Optional global configuration for all tasks (default: `None`)
 
 ### Returns
 
@@ -27,8 +32,9 @@ This function must be called on your FastAPI app instance before you can use the
 1. A lifespan context manager that creates an `anyio` task group
 2. Integration with FastAPI's application lifecycle
 3. Proper cleanup of tasks on shutdown
+4. Optional global configuration that applies to all tasks
 
-### Usage
+### Basic Usage
 
 ```python
 from fastapi import FastAPI
@@ -38,22 +44,65 @@ app = FastAPI()
 add_tasks(app)  # Must be called before endpoints use Tasks
 ```
 
+### With Global Configuration
+
+You can provide a `TaskConfig` to set defaults for all tasks in your application:
+
+```python
+from fastapi import FastAPI
+from fastapi_tasks import add_tasks, TaskConfig
+
+# Define global error handler
+async def global_error_handler(task, error):
+    print(f"Task failed: {error}")
+
+# Global configuration for all tasks
+global_config = TaskConfig(
+    shield=True,  # All tasks shielded by default
+    on_error=global_error_handler
+)
+
+app = FastAPI()
+add_tasks(app, config=global_config)
+
+
+# Now all tasks inherit the global config
+@app.post("/task")
+async def endpoint(tasks: Tasks) -> dict:
+    # This task is automatically shielded and uses global_error_handler
+    tasks.schedule(my_task)
+    
+    # You can still override the global config
+    tasks.task(shield=False).schedule(other_task)
+    
+    return {"status": "ok"}
+```
+
 ### What It Does
 
-Internally, `add_tasks()` merges a lifespan context into your application:
+Internally, `add_tasks()` merges a lifespan context into your application that:
+
+1. Creates an `anyio` task group for managing background tasks
+2. Stores the task group in the application state
+3. Optionally stores a global `TaskConfig` in the application state
+4. Ensures proper cleanup on shutdown
 
 ```python
 @asynccontextmanager
-async def _lifespan(_: FastAPI) -> AsyncIterator[dict[str, Any]]:
+async def _lifespan(_: FastAPI, /, config: TaskConfig) -> AsyncIterator[dict[str, Any]]:
     async with anyio.create_task_group() as tg:
-        yield {"fastapi_tasks_tg": tg}
+        yield {
+            "fastapi_tasks_tg": tg,
+            "fastapi_tasks_config": config,
+        }
         tg.cancel_scope.cancel()
 ```
 
 This ensures:
 - A task group exists for the application lifetime
+- A global config (if provided) is available to all tasks
 - Tasks are properly cancelled on shutdown (unless shielded)
-- The task group is accessible via `request.state.fastapi_tasks_tg`
+- The task group and config are accessible via request state
 
 ### Error: Missing add_tasks()
 
@@ -185,21 +234,34 @@ async def endpoint(tasks: Tasks) -> dict:
 
 ## Complete Setup Example
 
-Here's a complete application setup with proper error handling:
+Here's a complete application setup with global configuration:
 
 ```python
 from fastapi import FastAPI, HTTPException
-from fastapi_tasks import Tasks, add_tasks, FastAPITasksError
+from fastapi_tasks import Tasks, add_tasks, TaskConfig, Task, FastAPITasksError
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+
+# Define global error handler
+async def global_error_handler(task: Task, error: Exception) -> None:
+    logging.error(f"Task {task.config.name} failed: {error}", exc_info=error)
+
+
+# Global configuration for all tasks
+global_config = TaskConfig(
+    shield=False,  # Allow fast shutdown
+    on_error=global_error_handler  # Log all errors
+)
+
+
 # Create app
 app = FastAPI(title="My App with Background Tasks")
 
-# Initialize tasks support
-add_tasks(app)
+# Initialize tasks support with global config
+add_tasks(app, config=global_config)
 
 
 # Define tasks
@@ -211,10 +273,20 @@ async def my_background_task(data: str) -> None:
 @app.post("/process")
 async def process_data(data: str, tasks: Tasks) -> dict:
     try:
+        # Uses global config (shield=False, on_error=global_error_handler)
         tasks.schedule(my_background_task, data)
         return {"status": "processing", "data": data}
     except FastAPITasksError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/critical")
+async def critical_task(data: str, tasks: Tasks) -> dict:
+    # Override global shield setting for critical tasks
+    tasks.task(shield=True, name="critical_task").schedule(
+        my_background_task, data
+    )
+    return {"status": "processing"}
 
 
 # Health check
