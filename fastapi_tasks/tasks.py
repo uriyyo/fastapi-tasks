@@ -125,7 +125,7 @@ class _ConfiguredTaskDefMixin(ABC):
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> Task[P, T]:
-        task = Task(func=func, args=args, kwargs=kwargs)
+        task = Task(func=func, args=args, kwargs=kwargs, config=self.config)
         self._on_task_schedule(task)
 
         return task

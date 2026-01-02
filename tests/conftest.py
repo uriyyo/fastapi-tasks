@@ -3,11 +3,11 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
 from fastapi_tasks import add_tasks
+from tests.utils import app_client
 
 
 @pytest.fixture
@@ -27,15 +27,7 @@ def app(init_tasks: bool) -> FastAPI:  # noqa: FBT001
 
 @pytest_asyncio.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    manager = LifespanManager(app)
-
-    async with (
-        manager,
-        AsyncClient(
-            base_url="http://testserver",
-            transport=ASGITransport(app=manager.app),
-        ) as ac,
-    ):
+    async with app_client(app) as ac:
         yield ac
 
 
