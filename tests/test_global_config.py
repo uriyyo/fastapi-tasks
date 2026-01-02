@@ -7,8 +7,6 @@ from fastapi import FastAPI, status
 from fastapi_tasks import TaskConfig, Tasks, add_tasks
 from tests.utils import app_client
 
-pytestmark = pytest.mark.asyncio
-
 
 def test_merge_empty_configs() -> None:
     config1 = TaskConfig()
@@ -50,6 +48,7 @@ def test_merge_immutable() -> None:
     assert merged.name == "task2"
 
 
+@pytest.mark.asyncio
 async def test_global_config_applied() -> None:
     app = FastAPI()
     error_triggered = anyio.Event()
@@ -77,6 +76,7 @@ async def test_global_config_applied() -> None:
             assert error_triggered.is_set()
 
 
+@pytest.mark.asyncio
 async def test_task_override_global_config() -> None:
     app = FastAPI()
     global_handler_called = anyio.Event()
@@ -109,6 +109,7 @@ async def test_task_override_global_config() -> None:
             assert not global_handler_called.is_set()
 
 
+@pytest.mark.asyncio
 async def test_partial_task_override() -> None:
     app = FastAPI()
     error_triggered = anyio.Event()
@@ -136,6 +137,7 @@ async def test_partial_task_override() -> None:
             assert error_triggered.is_set()
 
 
+@pytest.mark.asyncio
 async def test_after_response_inherits_global_config() -> None:
     app = FastAPI()
     error_triggered = anyio.Event()
@@ -163,6 +165,7 @@ async def test_after_response_inherits_global_config() -> None:
             assert error_triggered.is_set()
 
 
+@pytest.mark.asyncio
 async def test_after_route_inherits_global_config() -> None:
     app = FastAPI()
     error_triggered = anyio.Event()
@@ -190,6 +193,7 @@ async def test_after_route_inherits_global_config() -> None:
             assert error_triggered.is_set()
 
 
+@pytest.mark.asyncio
 async def test_all_batch_types_use_same_global_config() -> None:
     app = FastAPI()
     errors_caught: list[str] = []
@@ -197,8 +201,9 @@ async def test_all_batch_types_use_same_global_config() -> None:
     expected_error_count = 3
 
     async def global_error_handler(*args: Any) -> None:
-        exc = args[1] if len(args) > 1 else args[0]
-        errors_caught.append(str(exc))
+        exc = args[1] if len(args) > 1 and args else (args[0] if args else None)
+        if exc:
+            errors_caught.append(str(exc))
         if len(errors_caught) == expected_error_count:
             completion_event.set()
 
