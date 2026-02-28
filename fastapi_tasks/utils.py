@@ -15,7 +15,7 @@ async def always_async_call(
     **kwargs: P.kwargs,
 ) -> T:
     if is_async_callable(func):
-        return await func(*args, **kwargs)
+        return await func(*args, **kwargs)  # type: ignore[invalid-return-type]
 
     return await run_in_threadpool(func, *args, **kwargs)
 
